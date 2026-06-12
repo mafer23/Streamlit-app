@@ -1,0 +1,17 @@
+# Streamlit secrets (contiene claves de API privadas)
+.streamlit/secrets.toml
+
+# Entornos virtuales
+.venv/
+venv/
+env/
+ENV/
+
+# Python cache y compilaciones
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Variables de entorno adicionales
+.env
