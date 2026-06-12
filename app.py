@@ -65,86 +65,133 @@ Señales típicas de estafa en Colombia a considerar:
 Anuncio a analizar:
 """
 
-PLATAFORMAS_STEALTH = ["mercadolibre", "olx", "mercadopago", "falabella", "exito"]
+PLATAFORMAS_STEALTH = ["facebook","mercadolibre", "olx", "mercadopago", "falabella", "exito"]
 
 def extraer_texto_de_url(url):
     from urllib.parse import urlparse, urlunparse
+
     parsed = urlparse(url)
-    
+    if "facebook.com" in parsed.netloc:
+        raise Exception(
+            "Facebook Marketplace no permite la extracción automática de anuncios.\n\n"
+            "📸 Subí una captura de pantalla del anuncio o\n"
+            "📝 copiá y pegá el texto del anuncio.\n\n"
+            "La IA puede analizar ambos formatos directamente."
+        )
     # Detectar si es una plataforma que bloquea bots y usar Firecrawl (stealth)
     usa_firecrawl = any(p in parsed.netloc for p in PLATAFORMAS_STEALTH)
-    
+
     if usa_firecrawl and firecrawl:
         try:
+            st.info(f"🔍 Intentando extraer contenido con Firecrawl de: {parsed.netloc}")
+
             result = firecrawl.scrape_url(
-                url,
+                url=url,
                 formats=["markdown"],
                 only_main_content=True
             )
-            contenido = getattr(result, 'markdown', None) or (result.get('markdown') if isinstance(result, dict) else None)
+
+            contenido = (
+                getattr(result, "markdown", None)
+                or (result.get("markdown") if isinstance(result, dict) else None)
+            )
+
             if contenido and len(contenido.strip()) > 50:
                 return f"Contenido extraído del anuncio:\n{contenido[:4000]}"
+
+            st.warning("⚠️ Firecrawl no devolvió contenido útil.")
+
         except Exception as e:
-            pass  # Fallback a BeautifulSoup si falla Firecrawl
+            st.error(f"❌ Error de Firecrawl: {str(e)}")
+            raise
+
     elif usa_firecrawl and not firecrawl:
         raise Exception(
             "Esta plataforma requiere el scraper inteligente (Firecrawl) para acceder a su contenido, "
             "pero la clave FIRECRAWL_API_KEY no está configurada en los secrets.\n\n"
             "Por ahora, copiá el texto del anuncio o subí una captura de pantalla."
         )
-    
+
     # Fallback estándar con BeautifulSoup
     try:
         if "facebook.com" in parsed.netloc:
-            url = urlunparse((parsed.scheme, parsed.netloc, parsed.path, '', '', ''))
+            url = urlunparse((parsed.scheme, parsed.netloc, parsed.path, "", "", ""))
 
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Accept-Language": "es-ES,es;q=0.9",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8"
         }
-        response = requests.get(url, headers=headers, timeout=10, allow_redirects=True)
-        
+
+        response = requests.get(
+            url,
+            headers=headers,
+            timeout=10,
+            allow_redirects=True
+        )
+
         if response.status_code != 200:
             raise Exception(f"HTTP {response.status_code}")
-        
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        meta_desc = soup.find('meta', attrs={'name': 'description'})
-        og_desc = soup.find('meta', attrs={'property': 'og:description'})
-        og_title = soup.find('meta', attrs={'property': 'og:title'})
-        
+
+        soup = BeautifulSoup(response.text, "html.parser")
+
+        meta_desc = soup.find("meta", attrs={"name": "description"})
+        og_desc = soup.find("meta", attrs={"property": "og:description"})
+        og_title = soup.find("meta", attrs={"property": "og:title"})
+
         title = soup.title.string if soup.title else ""
-        
+
         partes = []
+
         if title:
             partes.append(f"Título de la publicación: {title.strip()}")
-        if og_title and og_title.get('content'):
-            partes.append(f"Título alternativo: {og_title.get('content').strip()}")
-        if meta_desc and meta_desc.get('content'):
-            partes.append(f"Descripción corta: {meta_desc.get('content').strip()}")
-        if og_desc and og_desc.get('content'):
-            partes.append(f"Descripción detallada: {og_desc.get('content').strip()}")
-            
+
+        if og_title and og_title.get("content"):
+            partes.append(
+                f"Título alternativo: {og_title.get('content').strip()}"
+            )
+
+        if meta_desc and meta_desc.get("content"):
+            partes.append(
+                f"Descripción corta: {meta_desc.get('content').strip()}"
+            )
+
+        if og_desc and og_desc.get("content"):
+            partes.append(
+                f"Descripción detallada: {og_desc.get('content').strip()}"
+            )
+
         if len(partes) < 2:
             for script in soup(["script", "style"]):
                 script.decompose()
-            texto_cuerpo = soup.get_text(separator=' ', strip=True)
-            partes.append(f"Contenido del anuncio:\n{texto_cuerpo[:3000]}")
-            
+
+            texto_cuerpo = soup.get_text(
+                separator=" ",
+                strip=True
+            )
+
+            partes.append(
+                f"Contenido del anuncio:\n{texto_cuerpo[:3000]}"
+            )
+
         return "\n\n".join(partes)
+
     except Exception as e:
         err_msg = str(e)
-        plataforma = "Facebook Marketplace" if "facebook.com" in url else "la plataforma"
-        raise Exception(
-            f"No se pudo extraer la información del enlace automáticamente ({err_msg}).\n\n"
-            f"**¿Por qué ocurre esto?** {plataforma} utiliza sistemas de seguridad muy estrictos para bloquear "
-            f"el acceso de robots y proteger sus datos.\n\n"
-            f"**¿Cómo continuar?**\n"
-            f"1. Copiá y pegá el texto del anuncio en la pestaña **📝 Pegar Texto**.\n"
-            f"2. O tomá una captura de pantalla del anuncio y subila en la pestaña **📸 Subir Imagen (Captura)**. ¡Nuestra IA leerá el texto directamente desde la foto!"
+
+        plataforma = (
+            "Facebook Marketplace"
+            if "facebook.com" in parsed.netloc
+            else "la plataforma"
         )
 
+        raise Exception(
+            f"No se pudo extraer la información del enlace automáticamente ({err_msg}).\n\n"
+            f"¿Por qué ocurre esto? {plataforma} utiliza sistemas de seguridad muy estrictos para bloquear el acceso de robots y proteger sus datos.\n\n"
+            f"¿Cómo continuar?\n"
+            f"1. Copiá y pegá el texto del anuncio en la pestaña 📝 Pegar Texto.\n"
+            f"2. O tomá una captura de pantalla del anuncio y subila en la pestaña 📸 Subir Imagen (Captura)."
+        )
 def analizar_anuncio(texto, imagen_base64=None):
     if not client:
         return {
