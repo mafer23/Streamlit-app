@@ -1,5 +1,6 @@
 import streamlit as st
 from groq import Groq
+from firecrawl import FirecrawlApp
 import json
 import re
 import requests
@@ -13,8 +14,10 @@ import os
 
 try:
     API_KEY = st.secrets.get("GROQ_API_KEY", "") or os.environ.get("GROQ_API_KEY", "")
+    FIRECRAWL_KEY = st.secrets.get("FIRECRAWL_API_KEY", "") or os.environ.get("FIRECRAWL_API_KEY", "")
 except Exception:
     API_KEY = os.environ.get("GROQ_API_KEY", "")
+    FIRECRAWL_KEY = os.environ.get("FIRECRAWL_API_KEY", "")
 
 # Permitir ingresar la API Key manualmente si no está configurada
 if not API_KEY:
@@ -31,6 +34,11 @@ if API_KEY:
     client = Groq(api_key=API_KEY)
 else:
     client = None
+
+if FIRECRAWL_KEY:
+    firecrawl = FirecrawlApp(api_key=FIRECRAWL_KEY)
+else:
+    firecrawl = None
 
 SYSTEM_PROMPT = """Eres un experto en detectar estafas en marketplaces colombianos (Facebook Marketplace, OLX, Mercado Libre).
 Analiza el siguiente anuncio y responde SOLO con un JSON válido, sin texto adicional, sin markdown, con esta estructura exacta:
@@ -57,11 +65,36 @@ Señales típicas de estafa en Colombia a considerar:
 Anuncio a analizar:
 """
 
+PLATAFORMAS_STEALTH = ["mercadolibre", "olx", "mercadopago", "falabella", "exito"]
+
 def extraer_texto_de_url(url):
+    from urllib.parse import urlparse, urlunparse
+    parsed = urlparse(url)
+    
+    # Detectar si es una plataforma que bloquea bots y usar Firecrawl (stealth)
+    usa_firecrawl = any(p in parsed.netloc for p in PLATAFORMAS_STEALTH)
+    
+    if usa_firecrawl and firecrawl:
+        try:
+            result = firecrawl.scrape_url(
+                url,
+                formats=["markdown"],
+                only_main_content=True
+            )
+            contenido = getattr(result, 'markdown', None) or (result.get('markdown') if isinstance(result, dict) else None)
+            if contenido and len(contenido.strip()) > 50:
+                return f"Contenido extraído del anuncio:\n{contenido[:4000]}"
+        except Exception as e:
+            pass  # Fallback a BeautifulSoup si falla Firecrawl
+    elif usa_firecrawl and not firecrawl:
+        raise Exception(
+            "Esta plataforma requiere el scraper inteligente (Firecrawl) para acceder a su contenido, "
+            "pero la clave FIRECRAWL_API_KEY no está configurada en los secrets.\n\n"
+            "Por ahora, copiá el texto del anuncio o subí una captura de pantalla."
+        )
+    
+    # Fallback estándar con BeautifulSoup
     try:
-        from urllib.parse import urlparse, urlunparse
-        parsed = urlparse(url)
-        # Limpiar parámetros de rastreo masivos en URLs de Facebook para evitar errores 400 de ruteo
         if "facebook.com" in parsed.netloc:
             url = urlunparse((parsed.scheme, parsed.netloc, parsed.path, '', '', ''))
 
